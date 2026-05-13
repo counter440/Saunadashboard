@@ -92,6 +92,30 @@ async function fireDecision(device: DeviceRow, decision: AlertDecision): Promise
 	log.info({ device_id: device.device_id, kind: decision.kind, reason: decision.reason }, "alert");
 	const results = await dispatcher.dispatchAll({ device, kind: decision.kind, subject, body });
 
+	// Web Push to every subscription tied to this customer's users.
+	if (device.customer_id) {
+		const subs = await pool.query<{ id: string; endpoint: string; p256dh: string; auth: string }>(
+			`SELECT ps.id, ps.endpoint, ps.p256dh, ps.auth
+			   FROM push_subscriptions ps
+			   JOIN users u ON u.id = ps.user_id
+			  WHERE u.customer_id = $1`,
+			[device.customer_id],
+		);
+		for (const sub of subs.rows) {
+			const r = await dispatcher.sendPush(sub, {
+				title: subject,
+				body,
+				tag: `ember-${device.device_id}-${decision.kind}`,
+				url: "/alerts",
+			});
+			results.push(r);
+			// Drop dead subscriptions
+			if (dispatcher.isExpired(r)) {
+				await pool.query(`DELETE FROM push_subscriptions WHERE id = $1`, [sub.id]).catch(() => {});
+			}
+		}
+	}
+
 	for (const r of results) {
 		await pool.query(
 			`INSERT INTO notification_events
@@ -144,6 +168,7 @@ async function loadDevice(deviceId: string): Promise<DeviceRow | null> {
 		        d.low_temp_threshold::float8 AS low_temp_threshold,
 		        d.battery_warning_threshold::float8 AS battery_warning_threshold,
 		        d.battery_warning_percent,
+		        d.snoozed_until,
 		        d.last_seen,
 		        d.last_temp::float8 AS last_temp,
 		        d.last_battery_voltage::float8 AS last_battery_voltage,

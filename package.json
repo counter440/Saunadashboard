@@ -20,16 +20,21 @@
     "infra:logs": "docker compose -f infra/docker-compose.yml logs -f",
     "db:migrate": "tsx scripts/migrate.ts",
     "seed:super-admin": "tsx scripts/seed-super-admin.ts",
+    "vapid:generate": "tsx scripts/generate-vapid.ts",
     "mosquitto:passwd": "docker compose -f infra/docker-compose.yml exec mosquitto mosquitto_passwd -b /mosquitto/config/passwd"
   },
   "devDependencies": {
-    "tsx": "^4.19.2",
-    "typescript": "^5.6.3",
+    "@types/bcryptjs": "^2.4.6",
     "@types/node": "^22.7.5",
     "@types/pg": "^8.11.10",
-    "@types/bcryptjs": "^2.4.6",
+    "@types/web-push": "^3.6.4",
     "bcryptjs": "^2.4.3",
     "dotenv": "^16.4.5",
-    "pg": "^8.13.0"
+    "pg": "^8.13.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  },
+  "dependencies": {
+    "web-push": "^3.6.7"
   }
 }

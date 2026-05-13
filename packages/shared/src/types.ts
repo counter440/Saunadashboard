@@ -21,6 +21,7 @@ export interface DeviceRow {
 	alert_cooldown_hours: number;
 	alert_emails: string[];
 	alert_phones: string[];
+	snoozed_until: Date | null;
 }
 
 export interface ReadingRow {

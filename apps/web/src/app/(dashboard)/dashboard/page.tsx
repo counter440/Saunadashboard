@@ -4,6 +4,7 @@ import { requireCustomer } from "@/lib/session";
 import { getT } from "@/lib/i18n.server";
 import { plural, tFor, type Locale } from "@/lib/i18n";
 import { statusFor } from "@/lib/format";
+import { runwaysForCustomer } from "@/lib/battery";
 
 interface SiteRow {
 	id: string;

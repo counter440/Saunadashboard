@@ -76,6 +76,21 @@ function SidebarBase({ items, accent, locale }: { items: NavItem[]; accent: "acc
 	return (
 		<aside className="hidden md:flex flex-col w-60 shrink-0 border-r border-border bg-surface px-3 py-4">
 			<div className="px-2"><Brand kind={accent === "accent" ? "customer" : "admin"} /></div>
+			{accent === "warn" && (
+				<form action="/admin/search" className="px-2 mb-3">
+					<div className="flex items-center gap-2 px-2 py-1.5 rounded-md border border-border bg-surface2 focus-within:border-warn/50">
+						<svg viewBox="0 0 24 24" className="h-3.5 w-3.5 text-inkMute shrink-0" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+							<circle cx="11" cy="11" r="7" />
+							<path d="m21 21-4.3-4.3" />
+						</svg>
+						<input
+							name="q"
+							placeholder={tFor(locale, "search.placeholder")}
+							className="bg-transparent border-0 outline-none text-xs flex-1 placeholder:text-inkMute"
+						/>
+					</div>
+				</form>
+			)}
 			<nav className="flex flex-col">
 				{items.map((it, i) => {
 					const active = i === activeIdx;

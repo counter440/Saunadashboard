@@ -53,6 +53,11 @@ export function evaluateRules(input: EvaluateInput): AlertDecision[] {
 		lowBatteryCooldownHours = 24,
 	} = input;
 
+	// Maintenance / snooze — suppress all alerts until snoozed_until passes.
+	if (device.snoozed_until && device.snoozed_until.getTime() > now.getTime()) {
+		return decisions;
+	}
+
 	// ── 1. Low temperature ─────────────────────────────────────────────────
 	if (
 		device.low_temp_threshold !== null &&

@@ -7,6 +7,7 @@ import { cookies } from "next/headers";
 import { getT, LANG_COOKIE } from "@/lib/i18n.server";
 import { isLocale } from "@/lib/i18n";
 import { getTheme, THEME_COOKIE, type Theme } from "@/lib/theme.server";
+import { PushToggle } from "@/components/push-toggle";
 
 interface CustomerRow { id: string; name: string; billing_email: string; }
 
@@ -107,6 +108,26 @@ export default async function AccountPage() {
 					</label>
 					<button type="submit" className="btn-ghost text-sm ml-auto">{t("common.save")}</button>
 				</form>
+			</section>
+
+			<section className="card p-4">
+				<h2 className="eyebrow mb-2">{t("push.title")}</h2>
+				<p className="text-xs text-inkDim mb-3">{t("push.note")}</p>
+				{process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ? (
+					<PushToggle
+						publicKey={process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY}
+						labels={{
+							enable: t("push.enable"),
+							enabling: "…",
+							enabled: t("push.enabled"),
+							disable: t("push.disable"),
+							unsupported: t("push.unsupported"),
+							denied: t("push.denied"),
+						}}
+					/>
+				) : (
+					<span className="text-xs text-inkMute">{t("push.unsupported")}</span>
+				)}
 			</section>
 
 			<section className="card p-4">

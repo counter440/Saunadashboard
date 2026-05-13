@@ -20,6 +20,8 @@ interface DeviceSettings {
 	alert_cooldown_hours: number;
 	alert_emails: string[];
 	alert_phones: string[];
+	snoozed_until: Date | null;
+	public_token: string | null;
 }
 
 const DAY_KEYS: TKey[] = ["day.sun", "day.mon", "day.tue", "day.wed", "day.thu", "day.fri", "day.sat"];
@@ -30,7 +32,7 @@ export default async function DeviceSettingsPage({
 	searchParams,
 }: {
 	params: Promise<{ id: string }>;
-	searchParams: Promise<{ saved?: string }>;
+	searchParams: Promise<{ saved?: string; snooze?: string }>;
 }) {
 	const { customerId } = await requireCustomer();
 	const { t, locale } = await getT();
@@ -43,13 +45,68 @@ export default async function DeviceSettingsPage({
 		        d.battery_warning_percent,
 		        d.active_window_start::text AS active_window_start,
 		        d.active_window_end::text AS active_window_end,
-		        d.active_days, d.timezone, d.alert_cooldown_hours, d.alert_emails, d.alert_phones
+		        d.active_days, d.timezone, d.alert_cooldown_hours, d.alert_emails, d.alert_phones,
+		        d.snoozed_until, d.public_token
 		   FROM devices d
 		   LEFT JOIN sites s ON s.id = d.site_id
 		  WHERE d.device_id = $1 AND d.customer_id = $2`,
 		[id, customerId],
 	);
 	if (!device) notFound();
+
+	async function setSnooze(form: FormData) {
+		"use server";
+		const { customerId } = await requireCustomer();
+		const preset = String(form.get("preset") ?? "");
+		const custom = String(form.get("until") ?? "");
+		let until: Date | null = null;
+		if (preset === "1h") until = new Date(Date.now() + 1 * 3600_000);
+		else if (preset === "8h") until = new Date(Date.now() + 8 * 3600_000);
+		else if (preset === "24h") until = new Date(Date.now() + 24 * 3600_000);
+		else if (preset === "7d") until = new Date(Date.now() + 7 * 24 * 3600_000);
+		else if (preset === "custom" && custom) {
+			const d = new Date(custom);
+			if (!isNaN(d.getTime()) && d.getTime() > Date.now()) until = d;
+		}
+		if (!until) redirect(`/devices/${id}/settings?snooze=invalid`);
+		await pool.query(
+			`UPDATE devices SET snoozed_until = $1 WHERE device_id = $2 AND customer_id = $3`,
+			[until, id, customerId],
+		);
+		redirect(`/devices/${id}/settings?snooze=on`);
+	}
+
+	async function enableSharing() {
+		"use server";
+		const { customerId } = await requireCustomer();
+		const { randomBytes } = await import("node:crypto");
+		const token = randomBytes(16).toString("base64url");
+		await pool.query(
+			`UPDATE devices SET public_token = $1 WHERE device_id = $2 AND customer_id = $3`,
+			[token, id, customerId],
+		);
+		redirect(`/devices/${id}/settings?saved=share-on`);
+	}
+
+	async function disableSharing() {
+		"use server";
+		const { customerId } = await requireCustomer();
+		await pool.query(
+			`UPDATE devices SET public_token = NULL WHERE device_id = $1 AND customer_id = $2`,
+			[id, customerId],
+		);
+		redirect(`/devices/${id}/settings?saved=share-off`);
+	}
+
+	async function resumeAlerts() {
+		"use server";
+		const { customerId } = await requireCustomer();
+		await pool.query(
+			`UPDATE devices SET snoozed_until = NULL WHERE device_id = $1 AND customer_id = $2`,
+			[id, customerId],
+		);
+		redirect(`/devices/${id}/settings?snooze=off`);
+	}
 
 	const teamUsers = await q<{ id: string; email: string; role: "customer_owner" | "customer_member" }>(
 		`SELECT id, email, role FROM users WHERE customer_id = $1 ORDER BY role, email`,
@@ -152,6 +209,60 @@ export default async function DeviceSettingsPage({
 			{sp.saved && (
 				<div className="rounded-md bg-ok/10 text-ok px-3 py-2 text-sm my-4 border border-ok/30">{t("common.saved")}</div>
 			)}
+			{sp.snooze === "on" && (
+				<div className="rounded-md bg-warn/10 text-warn px-3 py-2 text-sm my-4 border border-warn/30">{t("snooze.saved")}</div>
+			)}
+			{sp.snooze === "off" && (
+				<div className="rounded-md bg-ok/10 text-ok px-3 py-2 text-sm my-4 border border-ok/30">{t("snooze.resumed")}</div>
+			)}
+			{sp.snooze === "invalid" && (
+				<div className="rounded-md bg-bad/10 text-bad px-3 py-2 text-sm my-4 border border-bad/30">{t("common.invalid")}</div>
+			)}
+
+			{/* Public sharing */}
+			<SharingSection
+				deviceId={id}
+				token={device.public_token}
+				enable={enableSharing}
+				disable={disableSharing}
+				locale={locale}
+				t={t}
+			/>
+
+			{/* Snooze card — always visible, prominent when active */}
+			<section className={`card p-4 mt-4 ${
+				device.snoozed_until && new Date(device.snoozed_until).getTime() > Date.now() ? "border-warn/40" : ""
+			}`}>
+				<h2 className={`eyebrow mb-1 ${
+					device.snoozed_until && new Date(device.snoozed_until).getTime() > Date.now() ? "text-warn" : ""
+				}`}>{t("snooze.title")}</h2>
+				<p className="text-xs text-inkDim mb-3">{t("snooze.note")}</p>
+
+				{device.snoozed_until && new Date(device.snoozed_until).getTime() > Date.now() ? (
+					<div className="flex flex-wrap items-center justify-between gap-3">
+						<div className="text-sm text-warn">
+							{t("snooze.activeUntil", {
+								when: new Date(device.snoozed_until).toLocaleString(locale === "nb" ? "nb-NO" : "en-US"),
+							})}
+						</div>
+						<form action={resumeAlerts}>
+							<button type="submit" className="btn-ghost text-sm">{t("snooze.resume")}</button>
+						</form>
+					</div>
+				) : (
+					<form action={setSnooze} className="flex flex-wrap gap-2 items-center">
+						<span className="text-sm text-inkDim mr-1">{t("snooze.snoozeFor")}</span>
+						<SnoozeBtn preset="1h" label={t("snooze.1h")} />
+						<SnoozeBtn preset="8h" label={t("snooze.8h")} />
+						<SnoozeBtn preset="24h" label={t("snooze.24h")} />
+						<SnoozeBtn preset="7d" label={t("snooze.7d")} />
+						<div className="flex items-center gap-2 ml-auto">
+							<input type="datetime-local" name="until" className="input !min-h-0 !py-1 text-xs w-auto" />
+							<button type="submit" name="preset" value="custom" className="btn-ghost text-sm">{t("common.save")}</button>
+						</div>
+					</form>
+				)}
+			</section>
 
 			<form action={save} className="space-y-5 mt-4">
 				<Section title={t("settings.section.thresholds")}>
@@ -306,5 +417,78 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 			<span className="text-sm text-inkDim">{label}</span>
 			<div className="mt-1">{children}</div>
 		</label>
+	);
+}
+
+function SnoozeBtn({ preset, label }: { preset: string; label: string }) {
+	return (
+		<button type="submit" name="preset" value={preset} className="btn-ghost text-xs">
+			{label}
+		</button>
+	);
+}
+
+async function SharingSection({
+	deviceId, token, enable, disable, locale, t,
+}: {
+	deviceId: string;
+	token: string | null;
+	enable: () => Promise<void>;
+	disable: () => Promise<void>;
+	locale: Locale;
+	t: (k: TKey, vars?: Record<string, string | number>) => string;
+}) {
+	const base = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
+	const url = token ? `${base}/p/${token}` : null;
+	let qrSvg: string | null = null;
+	if (url) {
+		try {
+			const QRCode = (await import("qrcode")).default;
+			qrSvg = await QRCode.toString(url, {
+				type: "svg",
+				margin: 1,
+				color: { dark: "#0e1116", light: "#ffffff" },
+				width: 240,
+			});
+		} catch {
+			qrSvg = null;
+		}
+	}
+	return (
+		<section className="card p-4 mt-4">
+			<h2 className="eyebrow mb-1">{t("share.title")}</h2>
+			<p className="text-xs text-inkDim mb-3">{t("share.note")}</p>
+			{token && url ? (
+				<div className="space-y-3">
+					<div>
+						<div className="text-xs text-inkDim mb-1">{t("share.url")}</div>
+						<div className="font-mono text-xs break-all bg-surface2 border border-border rounded-md px-3 py-2">
+							{url}
+						</div>
+					</div>
+					{qrSvg && (
+						<div>
+							<div className="text-xs text-inkDim mb-2">{t("share.qr")}</div>
+							<div
+								className="inline-block bg-white p-2 rounded-md"
+								dangerouslySetInnerHTML={{ __html: qrSvg }}
+							/>
+						</div>
+					)}
+					<div className="flex flex-wrap gap-2">
+						<a href={url} target="_blank" rel="noopener noreferrer" className="btn-ghost text-sm">
+							{t("share.viewLink")}
+						</a>
+						<form action={disable}>
+							<button type="submit" className="btn-ghost text-sm text-bad">{t("share.disable")}</button>
+						</form>
+					</div>
+				</div>
+			) : (
+				<form action={enable}>
+					<button type="submit" className="btn-primary text-sm">{t("share.enable")}</button>
+				</form>
+			)}
+		</section>
 	);
 }

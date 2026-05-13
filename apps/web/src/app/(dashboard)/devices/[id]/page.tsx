@@ -7,6 +7,8 @@ import { ChartCard } from "@/components/chart-card";
 import { formatBatteryPercent, statusFor } from "@/lib/format";
 import { getT } from "@/lib/i18n.server";
 import { relativeFromNowI18n, tFor, type Locale, type TKey } from "@/lib/i18n";
+import { recentSessions, formatDuration } from "@/lib/sessions";
+import { runwayForDevice } from "@/lib/battery";
 
 interface Device {
 	id: string;
@@ -129,8 +131,20 @@ export default async function DeviceDetailPage({
 				<ChartCard points={points} threshold={device.low_temp_threshold} />
 			</div>
 
+			<div className="card p-4 mb-5">
+				<h2 className="text-sm font-medium mb-2">{t("sessions.title")}</h2>
+				<SessionsTable deviceId={device.device_id} locale={locale} />
+			</div>
+
 			<div className="card p-4">
-				<h2 className="text-sm font-medium mb-2">{t("device.recentReadings")}</h2>
+				<div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
+					<h2 className="text-sm font-medium">{t("device.recentReadings")}</h2>
+					<div className="flex items-center gap-2 text-xs">
+						<a href={`/api/devices/${device.device_id}/export.csv?range=24h`} className="btn-ghost text-xs">{t("export.csv24h")}</a>
+						<a href={`/api/devices/${device.device_id}/export.csv?range=7d`} className="btn-ghost text-xs">{t("export.csv7d")}</a>
+						<a href={`/api/devices/${device.device_id}/export.csv?range=30d`} className="btn-ghost text-xs">{t("export.csv30d")}</a>
+					</div>
+				</div>
 				<RecentTable deviceId={device.device_id} locale={locale} />
 			</div>
 		</div>
@@ -142,6 +156,37 @@ function MetricInline({ label, value }: { label: string; value: string }) {
 		<div>
 			<div className="text-2xs uppercase tracking-wider text-inkMute">{label}</div>
 			<div className="font-medium tabular-nums mt-0.5">{value}</div>
+		</div>
+	);
+}
+
+async function SessionsTable({ deviceId, locale }: { deviceId: string; locale: Locale }) {
+	const sessions = (await recentSessions(deviceId, 30)).slice(-10).reverse();
+	if (sessions.length === 0) return <div className="text-sm text-inkDim italic">{tFor(locale, "sessions.empty")}</div>;
+	return (
+		<div className="overflow-x-auto -mx-4">
+			<table className="min-w-full text-sm">
+				<thead className="text-inkDim">
+					<tr>
+						<th className="text-left px-4 py-2 font-medium">{tFor(locale, "sessions.col.started")}</th>
+						<th className="text-right px-4 py-2 font-medium">{tFor(locale, "sessions.col.duration")}</th>
+						<th className="text-right px-4 py-2 font-medium">{tFor(locale, "sessions.col.peak")}</th>
+					</tr>
+				</thead>
+				<tbody>
+					{sessions.map((s) => (
+						<tr key={s.started_at.toISOString()} className="border-t border-border">
+							<td className="px-4 py-2 whitespace-nowrap">
+								{new Date(s.started_at).toLocaleString(locale === "nb" ? "nb-NO" : "en-US", {
+									dateStyle: "short", timeStyle: "short",
+								})}
+							</td>
+							<td className="px-4 py-2 text-right tabular-nums">{formatDuration(s.duration_seconds, locale)}</td>
+							<td className="px-4 py-2 text-right tabular-nums">{s.peak_c.toFixed(1)} °C</td>
+						</tr>
+					))}
+				</tbody>
+			</table>
 		</div>
 	);
 }

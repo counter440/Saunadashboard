@@ -22,13 +22,21 @@ export interface DeviceCardData {
 	last_battery_percent: number | null;
 	low_temp_threshold: number | null;
 	battery_warning_percent: number;
+	snoozed_until?: Date | null;
 }
 
-export function DeviceCard({ device, locale }: { device: DeviceCardData; locale: Locale }) {
+export function DeviceCard({
+	device, locale, runwayDays,
+}: {
+	device: DeviceCardData;
+	locale: Locale;
+	runwayDays?: number | null;
+}) {
 	const status = statusFor(device);
 	const tempText = TEMP_TEXT[status];
 	const t = device.last_temp;
 	const battPct = device.last_battery_percent;
+	const snoozed = device.snoozed_until && new Date(device.snoozed_until).getTime() > Date.now();
 
 	return (
 		<Link
@@ -50,8 +58,17 @@ export function DeviceCard({ device, locale }: { device: DeviceCardData; locale:
 					</div>
 				)}
 				{/* Status pill in top-right corner */}
-				<div className="absolute top-2 right-2">
+				<div className="absolute top-2 right-2 flex flex-col items-end gap-1">
 					<StatusPill status={status}>{tFor(locale, STATUS_KEY[status])}</StatusPill>
+					{snoozed && (
+						<span className="pill-warn">
+							<svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+								<path d="M12 6v6l4 2" />
+								<circle cx="12" cy="12" r="9" />
+							</svg>
+							{tFor(locale, "snooze.title")}
+						</span>
+					)}
 				</div>
 			</div>
 
@@ -79,9 +96,14 @@ export function DeviceCard({ device, locale }: { device: DeviceCardData; locale:
 
 				{/* Meta row */}
 				<div className="mt-3 grid grid-cols-2 gap-2 text-xs text-inkDim">
-					<div className="flex items-center gap-1.5">
+					<div className="flex items-center gap-1.5 min-w-0">
 						<BatteryGlyph pct={battPct ?? 0} />
 						<span className="tabular-nums">{battPct !== null ? `${battPct}%` : "—"}</span>
+						{typeof runwayDays === "number" && runwayDays < 60 && (
+							<span className={`tabular-nums truncate ${runwayDays < 7 ? "text-bad" : runwayDays < 30 ? "text-warn" : "text-inkMute"}`}>
+								· {tFor(locale, "battery.runwayShort", { n: runwayDays })}
+							</span>
+						)}
 					</div>
 					<div className="text-right tabular-nums">{relativeFromNowI18n(locale, device.last_seen)}</div>
 				</div>

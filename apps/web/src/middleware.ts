@@ -14,6 +14,8 @@ export default auth((req) => {
 		path === "/login" ||
 		path.startsWith("/api/auth") ||
 		path === "/" ||
+		path.startsWith("/p/") ||
+		path.startsWith("/uploads/") ||
 		path.startsWith("/icon-") ||
 		path === "/favicon.ico" ||
 		path === "/manifest.webmanifest" ||

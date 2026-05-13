@@ -26,6 +26,7 @@ function device(overrides: Partial<DeviceRow> = {}): DeviceRow {
 		alert_cooldown_hours: 4,
 		alert_emails: ["a@example.com"],
 		alert_phones: [],
+		snoozed_until: null,
 		...overrides,
 	};
 }
@@ -129,6 +130,17 @@ test("offline alert fires when last_seen > 90 min during active window", () => {
 		hasRecoveredSinceLastLowTemp: false,
 	});
 	assert.ok(d.some((x) => x.kind === "offline"));
+});
+
+test("snoozed device suppresses all alerts", () => {
+	const d = evaluateRules({
+		device: device({ snoozed_until: new Date("2026-05-13T20:00:00Z") }), // 1.5h after NOW
+		recentReadings: [reading(64, "2026-05-13T18:30:00Z", 3.2, 5), reading(65, "2026-05-13T18:00:00Z", 3.2, 5)],
+		now: NOW,
+		lastFired: {},
+		hasRecoveredSinceLastLowTemp: false,
+	});
+	assert.equal(d.length, 0);
 });
 
 test("offline alert silent outside active window (e.g. overnight)", () => {

@@ -5,6 +5,7 @@ import { requireCustomer } from "@/lib/session";
 import { getT } from "@/lib/i18n.server";
 import { DeviceCard, type DeviceCardData } from "@/components/device-card";
 import { tFor } from "@/lib/i18n";
+import { runwaysForCustomer } from "@/lib/battery";
 
 interface Site {
 	id: string;
@@ -29,7 +30,8 @@ export default async function SiteDetailPage({ params }: { params: Promise<{ id:
 			        last_temp::float8 AS last_temp,
 			        last_battery_percent,
 			        low_temp_threshold::float8 AS low_temp_threshold,
-			        battery_warning_percent
+			        battery_warning_percent,
+			        snoozed_until
 			   FROM devices WHERE site_id IS NULL AND customer_id = $1
 			   ORDER BY name`,
 			[customerId],
@@ -46,12 +48,14 @@ export default async function SiteDetailPage({ params }: { params: Promise<{ id:
 			        last_temp::float8 AS last_temp,
 			        last_battery_percent,
 			        low_temp_threshold::float8 AS low_temp_threshold,
-			        battery_warning_percent
+			        battery_warning_percent,
+			        snoozed_until
 			   FROM devices WHERE site_id = $1 AND customer_id = $2
 			   ORDER BY name`,
 			[id, customerId],
 		);
 	}
+	const runways = await runwaysForCustomer(customerId);
 
 	const heading = site?.name ?? tFor(locale, "dashboard.unassigned");
 
@@ -60,9 +64,16 @@ export default async function SiteDetailPage({ params }: { params: Promise<{ id:
 			<div className="mb-3">
 				<Link href="/dashboard" className="text-sm text-inkDim hover:text-accent">{t("site.allSites")}</Link>
 			</div>
-			<h1 className="text-xl md:text-2xl font-semibold">{heading}</h1>
-			{site?.address && <p className="text-inkDim mt-1">{site.address}</p>}
-			{site && <p className="text-xs text-inkDim mt-1">{t("site.timezone")}: {site.timezone}</p>}
+			<div className="flex flex-wrap items-start justify-between gap-3">
+				<div>
+					<h1 className="text-xl md:text-2xl font-semibold">{heading}</h1>
+					{site?.address && <p className="text-inkDim mt-1">{site.address}</p>}
+					{site && <p className="text-xs text-inkDim mt-1">{t("site.timezone")}: {site.timezone}</p>}
+				</div>
+				{devices.length > 1 && (
+					<Link href={`/sites/${id}/bulk`} className="btn-ghost text-sm">{t("bulk.button")}</Link>
+				)}
+			</div>
 
 			<div className="mt-5">
 				{devices.length === 0 ? (
@@ -71,7 +82,7 @@ export default async function SiteDetailPage({ params }: { params: Promise<{ id:
 					<ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
 						{devices.map((d) => (
 							<li key={d.id}>
-								<DeviceCard device={d} locale={locale} />
+								<DeviceCard device={d} locale={locale} runwayDays={runways.get(d.device_id) ?? null} />
 							</li>
 						))}
 					</ul>
