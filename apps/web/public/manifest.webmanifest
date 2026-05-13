@@ -1,0 +1,10 @@
+{
+	"name": "Ember",
+	"short_name": "Ember",
+	"description": "Monitor sauna temperature and battery, anywhere.",
+	"start_url": "/",
+	"display": "standalone",
+	"orientation": "portrait",
+	"background_color": "#182025",
+	"theme_color": "#182025"
+}

@@ -1,0 +1,19 @@
+# Caddy reverse proxy for sauna-monitor.
+# Local dev: hits localhost on :80 → proxies to the Next.js dev server on :3000.
+# Production: replace `:80` with `{$APP_HOSTNAME}` to enable auto-HTTPS.
+
+:80 {
+	reverse_proxy host.docker.internal:3000
+}
+
+# Production config (uncomment after DNS points here):
+#
+# {$APP_HOSTNAME} {
+# 	encode zstd gzip
+# 	reverse_proxy web:3000
+# 	header {
+# 		Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+# 		X-Content-Type-Options nosniff
+# 		Referrer-Policy strict-origin-when-cross-origin
+# 	}
+# }

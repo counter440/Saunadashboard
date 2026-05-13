@@ -1,0 +1,12 @@
+# This file is replaced at runtime by `mosquitto_passwd`. Do NOT commit a
+# real passwd file. The compose stack mounts ./passwd; create it with:
+#
+#   docker compose -f infra/docker-compose.yml run --rm --entrypoint sh mosquitto \
+#     -c "touch /mosquitto/config/passwd && chmod 600 /mosquitto/config/passwd"
+#   docker compose -f infra/docker-compose.yml exec mosquitto \
+#     mosquitto_passwd -b /mosquitto/config/passwd ingest <INGEST_PASSWORD>
+#   docker compose -f infra/docker-compose.yml exec mosquitto \
+#     mosquitto_passwd -b /mosquitto/config/passwd fake-device <FAKE_PASSWORD>
+#
+# After editing the passwd file, reload mosquitto:
+#   docker compose -f infra/docker-compose.yml kill -s HUP mosquitto

@@ -1,0 +1,133 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Theme tokens ─────────────────────────────────────────────────────── */
+:root,
+.theme-light {
+	--c-bg:        #f4f6f8;
+	--c-surface:   #ffffff;
+	--c-surface2: #eef2f5;
+	--c-border:    rgba(45, 58, 71, 0.10);
+	--c-ink:       #2d3a47;
+	--c-ink-dim:   #5e7583;
+	--c-ink-mute:  #95a6af;
+	color-scheme: light;
+}
+
+.theme-dark,
+:root.theme-dark {
+	--c-bg:        #182025;
+	--c-surface:   #202b32;
+	--c-surface2: #26323c;
+	--c-border:    rgba(213, 225, 234, 0.08);
+	--c-ink:       #d5e1ea;
+	--c-ink-dim:   #95a6af;
+	--c-ink-mute:  #5e7583;
+	color-scheme: dark;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root:not(.theme-light) {
+		--c-bg:        #182025;
+		--c-surface:   #202b32;
+		--c-surface2: #26323c;
+		--c-border:    rgba(213, 225, 234, 0.08);
+		--c-ink:       #d5e1ea;
+		--c-ink-dim:   #95a6af;
+		--c-ink-mute:  #5e7583;
+		color-scheme: dark;
+	}
+}
+
+html, body {
+	height: 100%;
+	background: var(--c-bg);
+	color: var(--c-ink);
+	-webkit-tap-highlight-color: transparent;
+	font-feature-settings: "ss01", "cv11", "tnum";
+}
+
+::selection { background: rgba(0, 187, 228, 0.30); color: inherit; }
+
+/* Crisp focus ring on every interactive element */
+*:focus-visible {
+	outline: none;
+	box-shadow: 0 0 0 2px var(--c-bg), 0 0 0 4px theme("colors.accent");
+	border-radius: 4px;
+}
+
+/* ── Component primitives ─────────────────────────────────────────────── */
+@layer components {
+
+	.btn {
+		@apply inline-flex items-center justify-center gap-2 min-h-touch px-4 rounded-md
+		       text-sm font-medium tracking-tight transition-colors
+		       active:scale-[0.99] disabled:opacity-50 disabled:pointer-events-none;
+	}
+	.btn-primary {
+		@apply btn bg-accent text-white hover:opacity-90
+		       shadow-[inset_0_-1px_0_rgba(0,0,0,0.15)];
+	}
+	.btn-ghost   { @apply btn bg-transparent text-ink hover:bg-surface2 border border-border; }
+	.btn-danger  { @apply btn bg-bad text-white hover:opacity-90; }
+
+	.input {
+		@apply w-full min-h-touch px-3 rounded-md border border-border
+		       bg-surface text-ink placeholder:text-inkMute
+		       focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent
+		       transition-shadow;
+	}
+	textarea.input { @apply min-h-[88px] py-2; resize: vertical; }
+	select.input   { @apply pr-8; background-image:
+		linear-gradient(45deg, transparent 50%, currentColor 50%),
+		linear-gradient(135deg, currentColor 50%, transparent 50%);
+		background-position: calc(100% - 18px) 50%, calc(100% - 13px) 50%;
+		background-size: 5px 5px, 5px 5px;
+		background-repeat: no-repeat;
+		appearance: none;
+	}
+
+	.card {
+		@apply rounded-lg bg-surface border border-border shadow-soft;
+	}
+	.card-lift {
+		@apply card hover:shadow-lift hover:border-accent/30 transition-[box-shadow,border-color];
+	}
+
+	.pill {
+		@apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5
+		       text-2xs font-semibold uppercase tracking-wider;
+	}
+	.pill-ok   { @apply pill bg-ok/10   text-ok   border border-ok/25; }
+	.pill-warn { @apply pill bg-warn/10 text-warn border border-warn/30; }
+	.pill-bad  { @apply pill bg-bad/15  text-bad  border border-bad/35; }
+	.pill-mute { @apply pill bg-surface2 text-inkDim border border-border; }
+
+	.dot       { @apply inline-block h-2 w-2 rounded-full; }
+	.dot-ok    { @apply dot bg-ok   shadow-[0_0_8px_currentColor]; }
+	.dot-warn  { @apply dot bg-warn shadow-[0_0_8px_currentColor]; }
+	.dot-bad   { @apply dot bg-bad  shadow-[0_0_8px_currentColor]; }
+
+	.kbd {
+		@apply inline-flex items-center px-1.5 py-0.5 rounded
+		       border border-border bg-surface2 text-2xs font-mono text-inkDim;
+	}
+
+	/* Section labels — tiny caps */
+	.eyebrow {
+		@apply text-2xs font-semibold uppercase tracking-[0.12em] text-inkDim;
+	}
+
+	/* Striped tables */
+	.table-rows tr:nth-child(odd) td  { background: color-mix(in srgb, var(--c-surface2) 35%, transparent); }
+	.table-rows tr:hover td           { background: color-mix(in srgb, var(--c-surface2) 70%, transparent); }
+}
+
+/* ── Subtle scrollbars for monitoring vibe ────────────────────────────── */
+*::-webkit-scrollbar      { width: 10px; height: 10px; }
+*::-webkit-scrollbar-thumb {
+	background: var(--c-border);
+	border-radius: 8px;
+}
+*::-webkit-scrollbar-thumb:hover { background: var(--c-ink-mute); }

@@ -1,0 +1,22 @@
+# Mosquitto ACL — sauna-monitor
+#
+# The ingest service has full subscribe to sauna/# and may not publish.
+# Each device user (created via mosquitto_passwd) gets a per-device entry
+# below pinning it to its own topic prefix.
+
+user ingest
+topic read sauna/#
+
+# ── Per-device entries ────────────────────────────────────────────────────
+# Add one block per provisioned device, e.g.:
+#
+# user sauna-01
+# topic write sauna/sauna-01/status
+# topic read  sauna/sauna-01/cmd
+#
+# A bench helper script can append these as you provision units.
+
+# Local dev convenience: a fake-device user that may publish anywhere
+# under sauna/. Remove or restrict in production.
+user fake-device
+topic write sauna/#
