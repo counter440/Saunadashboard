@@ -64,8 +64,23 @@ bool   isConnected()  { return WiFi.status() == WL_CONNECTED; }
 
 #elif defined(BUILD_LTE)
 
-// Stub — full LTE-M implementation lands in Phase C.
-#error "BUILD_LTE not implemented yet — see Phase C of the firmware plan."
+#include "modem.h"
+#include "time_util.h"
+
+namespace net {
+
+bool begin() {
+	if (!modem::begin()) return false;
+	// Once on cellular, NTP via UDP works the same way over the modem's PPP link.
+	if (!time_util::isSynced()) time_util::sync();
+	return true;
+}
+
+Client& client()      { return modem::client(); }
+int     signalDbm()   { return modem::signalDbm(); }
+bool    isConnected() { return modem::isConnected(); }
+
+} // namespace net
 
 #else
 #error "Define BUILD_WIFI or BUILD_LTE in platformio.ini"

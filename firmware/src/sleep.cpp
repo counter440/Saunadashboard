@@ -2,6 +2,9 @@
 #include "config.h"
 #include <esp_sleep.h>
 #include <time.h>
+#if defined(BUILD_LTE)
+  #include "modem.h"
+#endif
 
 // Persists across deep sleep — RTC slow memory.
 RTC_DATA_ATTR static uint32_t s_snoozeUntil = 0;
@@ -57,6 +60,12 @@ static uint64_t computeSleepMicros() {
 #if DEEP_SLEEP_ENABLED
 	const uint64_t us = computeSleepMicros();
 	log_i("→ deep sleep for %.1f s", us / 1e6f);
+#if defined(BUILD_LTE)
+	// Hand the modem off to PSM so it stays attached but quiescent. T3412 ≈ 3 h
+	// covers the worst-case 30-min cycle with margin; the network won't make us
+	// re-attach unless we exceed that.
+	modem::enablePSM();
+#endif
 	Serial.flush();
 	esp_sleep_enable_timer_wakeup(us);
 	esp_deep_sleep_start();
