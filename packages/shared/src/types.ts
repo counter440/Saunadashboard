@@ -18,9 +18,6 @@ export interface DeviceRow {
 	active_window_end: string;
 	active_days: number[]; // 0=Sun..6=Sat
 	timezone: string; // IANA tz, e.g. "Europe/Oslo"
-	alert_cooldown_hours: number;
-	alert_emails: string[];
-	alert_phones: string[];
 	snoozed_until: Date | null;
 }
 
@@ -34,7 +31,7 @@ export interface ReadingRow {
 }
 
 export type NotificationKind = "low_temp" | "low_battery" | "offline";
-export type NotificationChannel = "email" | "sms";
+export type NotificationChannel = "push";
 export type NotificationStatus = "sent" | "failed" | "dry_run";
 
 export interface NotificationEventRow {

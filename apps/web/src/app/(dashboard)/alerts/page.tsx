@@ -12,7 +12,7 @@ interface AlertRow {
 	fired_at: Date;
 	temperature: number | null;
 	battery_voltage: number | null;
-	channel: "email" | "sms";
+	channel: "push";
 	destination: string;
 	status: "sent" | "failed" | "dry_run";
 }

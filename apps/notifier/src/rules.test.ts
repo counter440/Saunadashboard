@@ -23,9 +23,6 @@ function device(overrides: Partial<DeviceRow> = {}): DeviceRow {
 		active_window_end: "23:59",
 		active_days: [0, 1, 2, 3, 4, 5, 6],
 		timezone: "UTC",
-		alert_cooldown_hours: 4,
-		alert_emails: ["a@example.com"],
-		alert_phones: [],
 		snoozed_until: null,
 		...overrides,
 	};
@@ -44,44 +41,39 @@ function reading(temp: number, t: string, batt: number | null = 3.8, pct: number
 
 const NOW = new Date("2026-05-13T18:30:00Z");
 
-test("single dip below threshold does not alert", () => {
+const baseInput = {
+	now: NOW,
+	lastFired: {} as Record<string, Date>,
+	hasRecoveredSinceLastLowTemp: false,
+	hasRecoveredSinceLastLowBattery: false,
+	hasReportedSinceLastOffline: false,
+};
+
+test("single dip below threshold fires low_temp", () => {
 	const d = evaluateRules({
+		...baseInput,
 		device: device(),
 		recentReadings: [reading(65, "2026-05-13T18:30:00Z"), reading(72, "2026-05-13T18:00:00Z")],
-		now: NOW,
-		lastFired: {},
-		hasRecoveredSinceLastLowTemp: false,
-	});
-	assert.equal(d.find((x) => x.kind === "low_temp"), undefined);
-});
-
-test("two consecutive dips fire low_temp", () => {
-	const d = evaluateRules({
-		device: device(),
-		recentReadings: [reading(64, "2026-05-13T18:30:00Z"), reading(65, "2026-05-13T18:00:00Z")],
-		now: NOW,
-		lastFired: {},
-		hasRecoveredSinceLastLowTemp: false,
 	});
 	assert.ok(d.some((x) => x.kind === "low_temp"));
 });
 
-test("cooldown suppresses repeat alert", () => {
+test("low_temp does not re-fire without recovery", () => {
 	const d = evaluateRules({
+		...baseInput,
 		device: device(),
 		recentReadings: [reading(64, "2026-05-13T18:30:00Z"), reading(65, "2026-05-13T18:00:00Z")],
-		now: NOW,
-		lastFired: { low_temp: new Date("2026-05-13T17:30:00Z") }, // 1h ago, cooldown=4h
+		lastFired: { low_temp: new Date("2026-05-13T17:30:00Z") },
 		hasRecoveredSinceLastLowTemp: false,
 	});
 	assert.equal(d.find((x) => x.kind === "low_temp"), undefined);
 });
 
-test("recovery resets cooldown — re-drop alerts immediately", () => {
+test("low_temp re-fires after recovery above threshold", () => {
 	const d = evaluateRules({
+		...baseInput,
 		device: device(),
-		recentReadings: [reading(64, "2026-05-13T18:30:00Z"), reading(65, "2026-05-13T18:00:00Z")],
-		now: NOW,
+		recentReadings: [reading(64, "2026-05-13T18:30:00Z"), reading(72, "2026-05-13T18:00:00Z")],
 		lastFired: { low_temp: new Date("2026-05-13T17:30:00Z") },
 		hasRecoveredSinceLastLowTemp: true,
 	});
@@ -90,70 +82,83 @@ test("recovery resets cooldown — re-drop alerts immediately", () => {
 
 test("out-of-window dip does not alert", () => {
 	const d = evaluateRules({
+		...baseInput,
 		device: device({ active_window_start: "06:00", active_window_end: "08:00" }),
-		recentReadings: [reading(64, "2026-05-13T18:30:00Z"), reading(65, "2026-05-13T18:00:00Z")],
-		now: NOW,
-		lastFired: {},
-		hasRecoveredSinceLastLowTemp: false,
+		recentReadings: [reading(64, "2026-05-13T18:30:00Z")],
 	});
 	assert.equal(d.find((x) => x.kind === "low_temp"), undefined);
 });
 
 test("low battery fires when below threshold", () => {
 	const d = evaluateRules({
+		...baseInput,
 		device: device(),
 		recentReadings: [reading(72, "2026-05-13T18:30:00Z", 3.2, 12)],
-		now: NOW,
-		lastFired: {},
-		hasRecoveredSinceLastLowTemp: false,
 	});
 	assert.ok(d.some((x) => x.kind === "low_battery"));
 });
 
-test("low battery cooldown (24h) suppresses", () => {
+test("low_battery does not re-fire without recovery", () => {
 	const d = evaluateRules({
+		...baseInput,
 		device: device(),
-		recentReadings: [reading(72, "2026-05-13T18:30:00Z", 3.2, 12)],
-		now: NOW,
-		lastFired: { low_battery: new Date("2026-05-13T05:00:00Z") }, // 13.5h ago
-		hasRecoveredSinceLastLowTemp: false,
+		recentReadings: [reading(72, "2026-05-13T18:30:00Z", 3.2, 8)],
+		lastFired: { low_battery: new Date("2026-05-13T05:00:00Z") },
+		hasRecoveredSinceLastLowBattery: false,
 	});
 	assert.equal(d.find((x) => x.kind === "low_battery"), undefined);
 });
 
+test("low_battery re-fires after battery swap recovery", () => {
+	const d = evaluateRules({
+		...baseInput,
+		device: device(),
+		recentReadings: [reading(72, "2026-05-13T18:30:00Z", 3.2, 12)],
+		lastFired: { low_battery: new Date("2026-05-13T05:00:00Z") },
+		hasRecoveredSinceLastLowBattery: true,
+	});
+	assert.ok(d.some((x) => x.kind === "low_battery"));
+});
+
 test("offline alert fires when last_seen > 90 min during active window", () => {
 	const d = evaluateRules({
-		device: device({ last_seen: new Date("2026-05-13T16:30:00Z") }), // 2h ago
+		...baseInput,
+		device: device({ last_seen: new Date("2026-05-13T16:30:00Z") }),
 		recentReadings: [],
-		now: NOW,
-		lastFired: {},
-		hasRecoveredSinceLastLowTemp: false,
 	});
 	assert.ok(d.some((x) => x.kind === "offline"));
 });
 
+test("offline does not re-fire while still silent", () => {
+	const d = evaluateRules({
+		...baseInput,
+		device: device({ last_seen: new Date("2026-05-13T16:30:00Z") }),
+		recentReadings: [],
+		lastFired: { offline: new Date("2026-05-13T17:00:00Z") },
+		hasReportedSinceLastOffline: false,
+	});
+	assert.equal(d.find((x) => x.kind === "offline"), undefined);
+});
+
 test("snoozed device suppresses all alerts", () => {
 	const d = evaluateRules({
-		device: device({ snoozed_until: new Date("2026-05-13T20:00:00Z") }), // 1.5h after NOW
-		recentReadings: [reading(64, "2026-05-13T18:30:00Z", 3.2, 5), reading(65, "2026-05-13T18:00:00Z", 3.2, 5)],
-		now: NOW,
-		lastFired: {},
-		hasRecoveredSinceLastLowTemp: false,
+		...baseInput,
+		device: device({ snoozed_until: new Date("2026-05-13T20:00:00Z") }),
+		recentReadings: [reading(64, "2026-05-13T18:30:00Z", 3.2, 5)],
 	});
 	assert.equal(d.length, 0);
 });
 
 test("offline alert silent outside active window (e.g. overnight)", () => {
 	const d = evaluateRules({
+		...baseInput,
 		device: device({
 			last_seen: new Date("2026-05-13T22:00:00Z"),
 			active_window_start: "06:00",
 			active_window_end: "23:59",
 		}),
 		recentReadings: [],
-		now: new Date("2026-05-14T02:00:00Z"), // 4h silent, but it's 2am UTC
-		lastFired: {},
-		hasRecoveredSinceLastLowTemp: false,
+		now: new Date("2026-05-14T02:00:00Z"),
 	});
 	assert.equal(d.find((x) => x.kind === "offline"), undefined);
 });

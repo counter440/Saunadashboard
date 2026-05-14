@@ -27,6 +27,7 @@ pnpm-debug.log*
 infra/mosquitto/data/
 infra/mosquitto/log/
 infra/mosquitto/passwd
+infra/mosquitto/certs/
 
 # postgres
 infra/postgres-data/

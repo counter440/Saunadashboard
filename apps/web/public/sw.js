@@ -1,6 +1,9 @@
 // Minimal service worker — offline app shell + Web Push handler.
-const CACHE = "sauna-shell-v2";
-const SHELL = ["/", "/manifest.webmanifest"];
+const CACHE = "sauna-shell-v3";
+// Note: do NOT precache "/" — it's a 307 redirect to /login or /dashboard,
+// and a cached redirect response causes Chrome/Safari to fail with
+// "response served by service worker has redirections" on later visits.
+const SHELL = ["/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
 	event.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)));
@@ -21,15 +24,21 @@ self.addEventListener("fetch", (event) => {
 	if (
 		event.request.method !== "GET" ||
 		url.origin !== self.location.origin ||
-		url.pathname.startsWith("/api/")
+		url.pathname.startsWith("/api/") ||
+		// Don't intercept HTML navigations — let the browser handle redirects,
+		// auth flows, and fresh server renders without a cached middle layer.
+		event.request.mode === "navigate"
 	) return;
 	event.respondWith(
 		caches.match(event.request).then((cached) =>
 			cached ||
 			fetch(event.request)
 				.then((res) => {
-					const copy = res.clone();
-					caches.open(CACHE).then((c) => c.put(event.request, copy));
+					// Only cache plain, same-origin, non-redirected, successful responses.
+					if (res.ok && res.type === "basic" && !res.redirected) {
+						const copy = res.clone();
+						caches.open(CACHE).then((c) => c.put(event.request, copy));
+					}
 					return res;
 				})
 				.catch(() => cached),

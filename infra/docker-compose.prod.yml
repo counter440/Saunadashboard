@@ -1,0 +1,18 @@
+name: sauna-monitor
+
+# Production compose — host Postgres, host nginx, only mosquitto in Docker.
+
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2.0
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:1883:1883"   # plaintext, host-only (ingest on host)
+      - "0.0.0.0:8883:8883"     # TLS, public (LTE-M devices)
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./mosquitto/acl:/mosquitto/config/acl:ro
+      - ./mosquitto/passwd:/mosquitto/config/passwd
+      - ./mosquitto/data:/mosquitto/data
+      - ./mosquitto/log:/mosquitto/log
+      - ./mosquitto/certs:/mosquitto/certs:ro

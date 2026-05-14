@@ -80,21 +80,6 @@ export default async function BulkEditPage({
 		if (include("timezone")) {
 			args.push(str("timezone")); sets.push(`timezone = $${args.length}`);
 		}
-		if (include("cooldown")) {
-			const c = z.coerce.number().int().min(1).max(168).safeParse(form.get("alert_cooldown_hours"));
-			if (c.success) { args.push(c.data); sets.push(`alert_cooldown_hours = $${args.length}`); }
-		}
-		if (include("emails")) {
-			const emails = String(form.get("alert_emails") ?? "")
-				.split(/[,\s]+/).map((s) => s.trim()).filter(Boolean);
-			args.push(emails); sets.push(`alert_emails = $${args.length}`);
-		}
-		if (include("phones")) {
-			const phones = String(form.get("alert_phones") ?? "")
-				.split(/[,\s]+/).map((s) => s.trim()).filter(Boolean);
-			args.push(phones); sets.push(`alert_phones = $${args.length}`);
-		}
-
 		if (sets.length === 0) redirect(`/sites/${id}/bulk?saved=nofields`);
 
 		args.push(selectedIds);
@@ -176,18 +161,6 @@ export default async function BulkEditPage({
 					<select name="timezone" defaultValue="Europe/Oslo" className="input">
 						{TIMEZONES.map((tz) => <option key={tz} value={tz}>{tz}</option>)}
 					</select>
-				</BulkField>
-
-				<BulkField name="cooldown" label={t("settings.cooldown")}>
-					<input name="alert_cooldown_hours" type="number" min={1} max={168} className="input" placeholder="4" />
-				</BulkField>
-
-				<BulkField name="emails" label={t("settings.otherEmails")}>
-					<input name="alert_emails" className="input" placeholder="alice@example.com, bob@example.com" />
-				</BulkField>
-
-				<BulkField name="phones" label={t("settings.alertPhones")}>
-					<input name="alert_phones" className="input" placeholder="+4790000000" />
 				</BulkField>
 
 				<div className="flex items-center justify-end gap-2">

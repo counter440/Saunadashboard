@@ -5,6 +5,7 @@ import { getT } from "@/lib/i18n.server";
 import { plural, tFor, type Locale } from "@/lib/i18n";
 import { statusFor } from "@/lib/format";
 import { runwaysForCustomer } from "@/lib/battery";
+import { AutoRefresh } from "@/components/auto-refresh";
 
 interface SiteRow {
 	id: string;
@@ -65,6 +66,7 @@ export default async function DashboardPage() {
 
 	return (
 		<div className="px-4 py-5 md:py-6 max-w-5xl">
+			<AutoRefresh />
 			<div className="mb-5">
 				<h1 className="text-xl md:text-2xl font-semibold">{t("dashboard.title")}</h1>
 				<p className="text-sm text-inkDim mt-1">{t("dashboard.pickLocation")}</p>

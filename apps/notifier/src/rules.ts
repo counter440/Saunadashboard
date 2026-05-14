@@ -12,19 +12,19 @@ export interface EvaluateInput {
 	recentReadings: ReadingRow[];
 	/** When this evaluation is being run. Pass an injected clock for tests. */
 	now: Date;
-	/** Last fired_at per kind for this device, used for cooldown. */
+	/** Last fired_at per kind for this device, used for the recovery gate. */
 	lastFired: LastFiredMap;
 	/**
-	 * The reading immediately preceding the most recent low-temp run we've already alerted on.
-	 * Used to implement "cooldown resets when temperature recovered above threshold".
-	 * If the device has had any reading at-or-above threshold AFTER the last `low_temp` event,
-	 * we consider the cooldown reset.
+	 * Has any reading at-or-above low_temp_threshold landed AFTER the last low_temp alert?
+	 * If true, the next sub-threshold breach may re-fire.
 	 */
 	hasRecoveredSinceLastLowTemp: boolean;
+	/** Same idea for battery: has battery_percent ≥ threshold landed AFTER the last low_battery alert? */
+	hasRecoveredSinceLastLowBattery: boolean;
+	/** Has any fresh reading landed AFTER the last offline alert? */
+	hasReportedSinceLastOffline: boolean;
 	/** Threshold (in minutes) above which a device is considered offline. */
 	offlineThresholdMinutes?: number;
-	/** Default cooldown for low_battery alerts (hours). */
-	lowBatteryCooldownHours?: number;
 }
 
 export interface AlertDecision {
@@ -38,8 +38,8 @@ export interface AlertDecision {
 
 /**
  * Pure function — given a snapshot of a device's state, decide which alerts (if any)
- * should fire right now. Caller is responsible for dispatching them and recording
- * notification_events rows.
+ * should fire right now. Edge-triggered: each kind fires once, then waits for the
+ * underlying condition to recover before it can fire again.
  */
 export function evaluateRules(input: EvaluateInput): AlertDecision[] {
 	const decisions: AlertDecision[] = [];
@@ -49,8 +49,9 @@ export function evaluateRules(input: EvaluateInput): AlertDecision[] {
 		now,
 		lastFired,
 		hasRecoveredSinceLastLowTemp,
+		hasRecoveredSinceLastLowBattery,
+		hasReportedSinceLastOffline,
 		offlineThresholdMinutes = 90,
-		lowBatteryCooldownHours = 24,
 	} = input;
 
 	// Maintenance / snooze — suppress all alerts until snoozed_until passes.
@@ -59,10 +60,9 @@ export function evaluateRules(input: EvaluateInput): AlertDecision[] {
 	}
 
 	// ── 1. Low temperature ─────────────────────────────────────────────────
-	if (
-		device.low_temp_threshold !== null &&
-		recentReadings.length >= 2
-	) {
+	// Single sub-threshold reading fires (device only reports every 30 min,
+	// waiting for a second confirmation would delay alerts by another full cycle).
+	if (device.low_temp_threshold !== null && recentReadings.length >= 1) {
 		const inWindow = isWithinActiveWindow(
 			now,
 			device.timezone,
@@ -71,20 +71,15 @@ export function evaluateRules(input: EvaluateInput): AlertDecision[] {
 			device.active_days,
 		);
 		if (inWindow) {
-			const [r0, r1] = recentReadings;
-			const breach =
-				Number(r0!.temperature) < device.low_temp_threshold &&
-				Number(r1!.temperature) < device.low_temp_threshold;
-			if (breach) {
-				const cooldownExpired = lastFired.low_temp
-					? hoursBetween(now, lastFired.low_temp) >= device.alert_cooldown_hours
-					: true;
-				if (cooldownExpired || hasRecoveredSinceLastLowTemp) {
+			const r0 = recentReadings[0]!;
+			if (Number(r0.temperature) < device.low_temp_threshold) {
+				const armed = !lastFired.low_temp || hasRecoveredSinceLastLowTemp;
+				if (armed) {
 					decisions.push({
 						kind: "low_temp",
-						reason: `temp ${r0!.temperature.toFixed(1)} < ${device.low_temp_threshold} for 2 consecutive readings`,
-						temperature: Number(r0!.temperature),
-						reading_at: r0!.created_at,
+						reason: `temp ${r0.temperature.toFixed(1)} < ${device.low_temp_threshold}`,
+						temperature: Number(r0.temperature),
+						reading_at: r0.created_at,
 					});
 				}
 			}
@@ -96,10 +91,8 @@ export function evaluateRules(input: EvaluateInput): AlertDecision[] {
 	if (latest && latest.battery_percent !== null) {
 		const pct = Number(latest.battery_percent);
 		if (pct < device.battery_warning_percent) {
-			const cooldownExpired = lastFired.low_battery
-				? hoursBetween(now, lastFired.low_battery) >= lowBatteryCooldownHours
-				: true;
-			if (cooldownExpired) {
+			const armed = !lastFired.low_battery || hasRecoveredSinceLastLowBattery;
+			if (armed) {
 				decisions.push({
 					kind: "low_battery",
 					reason: `battery ${pct}% < ${device.battery_warning_percent}%`,
@@ -123,10 +116,8 @@ export function evaluateRules(input: EvaluateInput): AlertDecision[] {
 				device.active_days,
 			);
 			if (inWindow) {
-				const cooldownExpired = lastFired.offline
-					? hoursBetween(now, lastFired.offline) >= device.alert_cooldown_hours
-					: true;
-				if (cooldownExpired) {
+				const armed = !lastFired.offline || hasReportedSinceLastOffline;
+				if (armed) {
 					decisions.push({
 						kind: "offline",
 						reason: `no reading for ${Math.round(minutesSilent)} min during active window`,
@@ -138,8 +129,4 @@ export function evaluateRules(input: EvaluateInput): AlertDecision[] {
 	}
 
 	return decisions;
-}
-
-function hoursBetween(a: Date, b: Date): number {
-	return Math.abs(a.getTime() - b.getTime()) / 3_600_000;
 }

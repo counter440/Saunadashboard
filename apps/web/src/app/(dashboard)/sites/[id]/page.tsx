@@ -6,6 +6,7 @@ import { getT } from "@/lib/i18n.server";
 import { DeviceCard, type DeviceCardData } from "@/components/device-card";
 import { tFor } from "@/lib/i18n";
 import { runwaysForCustomer } from "@/lib/battery";
+import { AutoRefresh } from "@/components/auto-refresh";
 
 interface Site {
 	id: string;
@@ -61,6 +62,7 @@ export default async function SiteDetailPage({ params }: { params: Promise<{ id:
 
 	return (
 		<div className="px-4 py-5 md:py-6 max-w-5xl">
+			<AutoRefresh />
 			<div className="mb-3">
 				<Link href="/dashboard" className="text-sm text-inkDim hover:text-accent">{t("site.allSites")}</Link>
 			</div>

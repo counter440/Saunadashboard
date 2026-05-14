@@ -2,13 +2,16 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { q, q1 } from "@/lib/db";
 import { requireCustomer } from "@/lib/session";
-import { StatusPill } from "@/components/status-pill";
 import { ChartCard } from "@/components/chart-card";
-import { formatBatteryPercent, statusFor } from "@/lib/format";
 import { getT } from "@/lib/i18n.server";
-import { relativeFromNowI18n, tFor, type Locale, type TKey } from "@/lib/i18n";
+import { tFor, type Locale, type TKey } from "@/lib/i18n";
 import { recentSessions, formatDuration } from "@/lib/sessions";
-import { runwayForDevice } from "@/lib/battery";
+import {
+	DeviceLiveProvider,
+	LiveHeroMetrics,
+	LiveRecentTable,
+	LiveStatusPill,
+} from "@/components/device-live";
 
 interface Device {
 	id: string;
@@ -27,10 +30,6 @@ interface Device {
 	active_window_end: string;
 	timezone: string;
 }
-
-const STATUS_KEY: Record<"ok" | "warn" | "bad", TKey> = {
-	ok: "status.ok", warn: "status.warn", bad: "status.bad",
-};
 
 export default async function DeviceDetailPage({
 	params,
@@ -62,102 +61,106 @@ export default async function DeviceDetailPage({
 	if (!device) notFound();
 
 	const points = await loadChart(device.device_id, range);
-	const status = statusFor(device);
+	const initialRecent = await loadInitialRecent(device.device_id);
 
 	return (
-		<div className="px-4 py-5 md:py-6 max-w-5xl">
-			<div className="mb-3">
-				<Link href={device.site_id ? `/sites/${device.site_id}` : "/dashboard"} className="text-sm text-inkDim hover:text-accent">
-					← {device.site_name ?? t("dashboard.title")}
-				</Link>
-			</div>
-			<div className="flex flex-wrap items-start justify-between gap-3 mb-4">
-				<div>
-					<h1 className="text-xl md:text-2xl font-semibold">{device.name}</h1>
-					<p className="text-sm text-inkDim">
-						{device.site_name ?? t("device.noSite")} · <span className="font-mono">{device.device_id}</span>
-					</p>
+		<DeviceLiveProvider
+			meta={{
+				device_id: device.device_id,
+				low_temp_threshold: device.low_temp_threshold,
+				battery_warning_percent: device.battery_warning_percent,
+			}}
+			initial={{
+				last_temp: device.last_temp,
+				last_seen: device.last_seen,
+				last_battery_percent: device.last_battery_percent,
+				last_signal: device.last_signal,
+				recent: initialRecent,
+			}}
+		>
+			<div className="px-4 py-5 md:py-6 max-w-5xl">
+				<div className="mb-3">
+					<Link href={device.site_id ? `/sites/${device.site_id}` : "/dashboard"} className="text-sm text-inkDim hover:text-accent">
+						← {device.site_name ?? t("dashboard.title")}
+					</Link>
 				</div>
-				<div className="flex items-center gap-2">
-					<StatusPill status={status}>{tFor(locale, STATUS_KEY[status])}</StatusPill>
-					<Link href={`/devices/${device.device_id}/settings`} className="btn-ghost text-sm">{t("device.settings")}</Link>
-				</div>
-			</div>
-
-			{/* Hero with optional image + giant temperature */}
-			<div className="card overflow-hidden mb-5">
-				<div className="grid grid-cols-1 md:grid-cols-2">
-					<div className="relative aspect-[16/9] md:aspect-auto md:min-h-[220px] bg-surface2">
-						{device.image_path ? (
-							// eslint-disable-next-line @next/next/no-img-element
-							<img src={device.image_path} alt={device.name} className="absolute inset-0 h-full w-full object-cover" />
-						) : (
-							<div className="absolute inset-0 grid place-items-center text-inkMute">
-								<svg viewBox="0 0 64 64" className="h-16 w-16 opacity-40" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
-									<path d="M8 56h48M12 56V24l20-12 20 12v32M22 56v-16h20v16" />
-									<path d="M28 22c2 2 0 4 2 6M34 22c2 2 0 4 2 6" />
-								</svg>
-							</div>
-						)}
+				<div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+					<div>
+						<h1 className="text-xl md:text-2xl font-semibold">{device.name}</h1>
+						<p className="text-sm text-inkDim">
+							{device.site_name ?? t("device.noSite")} · <span className="font-mono">{device.device_id}</span>
+						</p>
 					</div>
-					<div className="p-5 md:p-6 flex flex-col justify-between">
-						<div className="text-2xs uppercase tracking-wider text-inkMute">{t("device.metric.temperature")}</div>
-						<div className="flex items-baseline gap-2 mt-1">
-							<span className={`text-6xl md:text-7xl font-semibold tabular-nums leading-none ${
-								status === "bad" ? "text-bad" : status === "warn" ? "text-warn" : "text-ink"
-							}`}>
-								{device.last_temp === null ? "—" : Number(device.last_temp).toFixed(1)}
-							</span>
-							<span className={`text-3xl font-semibold ${
-								status === "bad" ? "text-bad" : status === "warn" ? "text-warn" : "text-ink"
-							}`}>°C</span>
+					<div className="flex items-center gap-2">
+						<LiveStatusPill locale={locale} />
+						<Link href={`/devices/${device.device_id}/settings`} className="btn-ghost text-sm">{t("device.settings")}</Link>
+					</div>
+				</div>
+
+				{/* Hero with optional image + giant temperature */}
+				<div className="card overflow-hidden mb-5">
+					<div className="grid grid-cols-1 md:grid-cols-2">
+						<div className="relative aspect-[16/9] md:aspect-auto md:min-h-[220px] bg-surface2">
+							{device.image_path ? (
+								// eslint-disable-next-line @next/next/no-img-element
+								<img src={device.image_path} alt={device.name} className="absolute inset-0 h-full w-full object-cover" />
+							) : (
+								<div className="absolute inset-0 grid place-items-center text-inkMute">
+									<svg viewBox="0 0 64 64" className="h-16 w-16 opacity-40" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
+										<path d="M8 56h48M12 56V24l20-12 20 12v32M22 56v-16h20v16" />
+										<path d="M28 22c2 2 0 4 2 6M34 22c2 2 0 4 2 6" />
+									</svg>
+								</div>
+							)}
 						</div>
-						{device.low_temp_threshold !== null && (
-							<div className="text-2xs text-inkMute uppercase tracking-wider mt-1">
-								min {device.low_temp_threshold}°
-							</div>
-						)}
-						<div className="grid grid-cols-3 gap-2 mt-5 text-xs">
-							<MetricInline label={t("device.metric.battery")} value={formatBatteryPercent(device.last_battery_percent)} />
-							<MetricInline label={t("device.metric.signal")} value={device.last_signal !== null ? `${device.last_signal} dBm` : "—"} />
-							<MetricInline label={t("device.metric.lastSeen")} value={relativeFromNowI18n(locale, device.last_seen)} />
+						<div className="p-5 md:p-6 flex flex-col justify-between">
+							<LiveHeroMetrics locale={locale} />
 						</div>
 					</div>
 				</div>
-			</div>
 
-			<div className="card p-3 md:p-4 mb-5">
-				<RangeTabs deviceId={device.device_id} current={range} locale={locale} />
-				<ChartCard points={points} threshold={device.low_temp_threshold} />
-			</div>
-
-			<div className="card p-4 mb-5">
-				<h2 className="text-sm font-medium mb-2">{t("sessions.title")}</h2>
-				<SessionsTable deviceId={device.device_id} locale={locale} />
-			</div>
-
-			<div className="card p-4">
-				<div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
-					<h2 className="text-sm font-medium">{t("device.recentReadings")}</h2>
-					<div className="flex items-center gap-2 text-xs">
-						<a href={`/api/devices/${device.device_id}/export.csv?range=24h`} className="btn-ghost text-xs">{t("export.csv24h")}</a>
-						<a href={`/api/devices/${device.device_id}/export.csv?range=7d`} className="btn-ghost text-xs">{t("export.csv7d")}</a>
-						<a href={`/api/devices/${device.device_id}/export.csv?range=30d`} className="btn-ghost text-xs">{t("export.csv30d")}</a>
-					</div>
+				<div className="card p-3 md:p-4 mb-5">
+					<RangeTabs deviceId={device.device_id} current={range} locale={locale} />
+					<ChartCard points={points} threshold={device.low_temp_threshold} />
 				</div>
-				<RecentTable deviceId={device.device_id} locale={locale} />
+
+				<div className="card p-4 mb-5">
+					<h2 className="text-sm font-medium mb-2">{t("sessions.title")}</h2>
+					<SessionsTable deviceId={device.device_id} locale={locale} />
+				</div>
+
+				<div className="card p-4">
+					<div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
+						<h2 className="text-sm font-medium">{t("device.recentReadings")}</h2>
+						<div className="flex items-center gap-2 text-xs">
+							<a href={`/api/devices/${device.device_id}/export.csv?range=24h`} className="btn-ghost text-xs">{t("export.csv24h")}</a>
+							<a href={`/api/devices/${device.device_id}/export.csv?range=7d`} className="btn-ghost text-xs">{t("export.csv7d")}</a>
+							<a href={`/api/devices/${device.device_id}/export.csv?range=30d`} className="btn-ghost text-xs">{t("export.csv30d")}</a>
+						</div>
+					</div>
+					<LiveRecentTable locale={locale} />
+				</div>
 			</div>
-		</div>
+		</DeviceLiveProvider>
 	);
 }
 
-function MetricInline({ label, value }: { label: string; value: string }) {
-	return (
-		<div>
-			<div className="text-2xs uppercase tracking-wider text-inkMute">{label}</div>
-			<div className="font-medium tabular-nums mt-0.5">{value}</div>
-		</div>
+async function loadInitialRecent(deviceId: string) {
+	const rows = await q<{
+		created_at: Date;
+		temperature: number;
+		battery_percent: number | null;
+	}>(
+		`SELECT created_at,
+		        temperature::float8 AS temperature,
+		        battery_percent
+		   FROM temperature_readings
+		  WHERE device_id = $1
+		  ORDER BY created_at DESC
+		  LIMIT 30`,
+		[deviceId],
 	);
+	return rows;
 }
 
 async function SessionsTable({ deviceId, locale }: { deviceId: string; locale: Locale }) {
@@ -250,42 +253,3 @@ async function loadChart(deviceId: string, range: "24h" | "7d" | "30d") {
 	return rows.map((r) => ({ t: new Date(r.bucket).getTime(), v: Number(r.v) }));
 }
 
-async function RecentTable({ deviceId, locale }: { deviceId: string; locale: Locale }) {
-	const rows = await q<{
-		created_at: Date;
-		temperature: number;
-		battery_percent: number | null;
-	}>(
-		`SELECT created_at,
-		        temperature::float8 AS temperature,
-		        battery_percent
-		   FROM temperature_readings
-		  WHERE device_id = $1
-		  ORDER BY created_at DESC
-		  LIMIT 30`,
-		[deviceId],
-	);
-	if (rows.length === 0) return <div className="text-sm text-inkDim italic">{tFor(locale, "device.noReadings")}</div>;
-	return (
-		<div className="overflow-x-auto -mx-4">
-			<table className="min-w-full text-sm">
-				<thead className="text-inkDim">
-					<tr>
-						<th className="text-left px-4 py-2 font-medium">{tFor(locale, "device.col.when")}</th>
-						<th className="text-right px-4 py-2 font-medium">{tFor(locale, "device.col.temp")}</th>
-						<th className="text-right px-4 py-2 font-medium">{tFor(locale, "device.col.battery")}</th>
-					</tr>
-				</thead>
-				<tbody>
-					{rows.map((r) => (
-						<tr key={new Date(r.created_at).toISOString()} className="border-t border-border">
-							<td className="px-4 py-2 whitespace-nowrap">{new Date(r.created_at).toLocaleString(locale === "nb" ? "nb-NO" : "en-US")}</td>
-							<td className="px-4 py-2 text-right tabular-nums">{Number(r.temperature).toFixed(1)} °C</td>
-							<td className="px-4 py-2 text-right tabular-nums">{r.battery_percent !== null ? `${r.battery_percent}%` : "—"}</td>
-						</tr>
-					))}
-				</tbody>
-			</table>
-		</div>
-	);
-}

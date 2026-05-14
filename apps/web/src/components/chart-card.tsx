@@ -1,4 +1,5 @@
 "use client";
+import { memo } from "react";
 import {
 	LineChart,
 	Line,
@@ -15,7 +16,7 @@ interface Point {
 	v: number;
 }
 
-export function ChartCard({ points, threshold }: { points: Point[]; threshold: number | null }) {
+function ChartCardInner({ points, threshold }: { points: Point[]; threshold: number | null }) {
 	if (points.length === 0) {
 		return (
 			<div className="h-64 grid place-items-center text-inkDim text-sm">
@@ -70,3 +71,14 @@ export function ChartCard({ points, threshold }: { points: Point[]; threshold: n
 		</div>
 	);
 }
+
+// Only re-render when threshold changes or when the most recent point's timestamp differs.
+// Polling refreshes return a fresh array reference every tick even when no new data arrived;
+// without this memo the whole Recharts tree unmounts/remounts every refresh, which on iOS PWA
+// blocks scroll and causes a visible flicker via ResponsiveContainer's ResizeObserver.
+export const ChartCard = memo(ChartCardInner, (prev, next) => {
+	if (prev.threshold !== next.threshold) return false;
+	if (prev.points.length !== next.points.length) return false;
+	if (prev.points.length === 0) return true;
+	return prev.points[prev.points.length - 1]!.t === next.points[next.points.length - 1]!.t;
+});

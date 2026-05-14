@@ -16,8 +16,7 @@ if (!databaseUrl) {
 	process.exit(1);
 }
 
-const dryRun = process.env.NOTIFIER_DRY_RUN !== "false";
-const dispatcher = new Dispatcher(log, dryRun);
+const dispatcher = new Dispatcher(log);
 await dispatcher.ready();
 
 const pool = new pg.Pool({ connectionString: databaseUrl, max: 4 });
@@ -43,7 +42,7 @@ setInterval(() => {
 	void sweepAllDevices().catch((err) => log.error({ err }, "sweep failed"));
 }, SWEEP_INTERVAL_MS);
 
-log.info({ dryRun }, "notifier ready");
+log.info("notifier ready");
 
 // ────────────────────────────────────────────────────────────────────────
 
@@ -71,6 +70,15 @@ async function evaluateAndDispatchByDeviceId(deviceId: string): Promise<void> {
 		lastFired.low_temp,
 		device.low_temp_threshold,
 	);
+	const hasRecoveredSinceLastLowBattery = await hasRecoveredSinceLastLowBatteryEvent(
+		deviceId,
+		lastFired.low_battery,
+		device.battery_warning_percent,
+	);
+	const hasReportedSinceLastOffline = await hasReportedSinceLastOfflineEvent(
+		deviceId,
+		lastFired.offline,
+	);
 
 	const now = new Date();
 	const decisions = evaluateRules({
@@ -79,6 +87,8 @@ async function evaluateAndDispatchByDeviceId(deviceId: string): Promise<void> {
 		now,
 		lastFired,
 		hasRecoveredSinceLastLowTemp,
+		hasRecoveredSinceLastLowBattery,
+		hasReportedSinceLastOffline,
 	});
 
 	for (const decision of decisions) {
@@ -90,29 +100,30 @@ async function fireDecision(device: DeviceRow, decision: AlertDecision): Promise
 	const subject = subjectFor(device, decision);
 	const body = bodyFor(device, decision);
 	log.info({ device_id: device.device_id, kind: decision.kind, reason: decision.reason }, "alert");
-	const results = await dispatcher.dispatchAll({ device, kind: decision.kind, subject, body });
+	const results: Awaited<ReturnType<typeof dispatcher.sendPush>>[] = [];
 
-	// Web Push to every subscription tied to this customer's users.
-	if (device.customer_id) {
-		const subs = await pool.query<{ id: string; endpoint: string; p256dh: string; auth: string }>(
-			`SELECT ps.id, ps.endpoint, ps.p256dh, ps.auth
-			   FROM push_subscriptions ps
-			   JOIN users u ON u.id = ps.user_id
-			  WHERE u.customer_id = $1`,
-			[device.customer_id],
-		);
-		for (const sub of subs.rows) {
-			const r = await dispatcher.sendPush(sub, {
-				title: subject,
-				body,
-				tag: `ember-${device.device_id}-${decision.kind}`,
-				url: "/alerts",
-			});
-			results.push(r);
-			// Drop dead subscriptions
-			if (dispatcher.isExpired(r)) {
-				await pool.query(`DELETE FROM push_subscriptions WHERE id = $1`, [sub.id]).catch(() => {});
-			}
+	// Web Push to every subscription whose user has opted in to this device.
+	const subs = await pool.query<{ id: string; endpoint: string; p256dh: string; auth: string; user_email: string }>(
+		`SELECT ps.id, ps.endpoint, ps.p256dh, ps.auth, u.email AS user_email
+		   FROM device_push_subscribers dps
+		   JOIN users u                  ON u.id  = dps.user_id
+		   JOIN push_subscriptions ps    ON ps.user_id = u.id
+		  WHERE dps.device_id = $1`,
+		[device.device_id],
+	);
+	if (subs.rows.length === 0) {
+		log.warn({ device_id: device.device_id, kind: decision.kind }, "no push subscribers for device");
+	}
+	for (const sub of subs.rows) {
+		const r = await dispatcher.sendPush(sub, {
+			title: subject,
+			body,
+			tag: `ember-${device.device_id}-${decision.kind}`,
+			url: "/alerts",
+		});
+		results.push(r);
+		if (dispatcher.isExpired(r)) {
+			await pool.query(`DELETE FROM push_subscriptions WHERE id = $1`, [sub.id]).catch(() => {});
 		}
 	}
 
@@ -140,24 +151,31 @@ function subjectFor(device: DeviceRow, d: AlertDecision): string {
 	const name = device.name || device.device_id;
 	switch (d.kind) {
 		case "low_temp":
-			return `[Ember] ${name}: low temperature`;
+			return `${name}: Lav temperatur`;
 		case "low_battery":
-			return `[Ember] ${name}: low battery`;
+			return `${name}: Lavt batteri`;
 		case "offline":
-			return `[Ember] ${name}: offline`;
+			return `${name}: Offline`;
 	}
 }
 
 function bodyFor(device: DeviceRow, d: AlertDecision): string {
 	const name = device.name || device.device_id;
-	const where = device.site_name ? ` (${device.site_name})` : "";
 	switch (d.kind) {
-		case "low_temp":
-			return `Sauna "${name}"${where} reported ${d.temperature?.toFixed(1)} °C — below threshold ${device.low_temp_threshold} °C. Reason: ${d.reason}.`;
-		case "low_battery":
-			return `Sauna "${name}"${where} battery is at ${d.battery_percent}% — replace soon. Threshold: ${device.battery_warning_percent}%.`;
+		case "low_temp": {
+			const temp = d.temperature !== undefined && d.temperature !== null
+				? `${d.temperature.toFixed(1)} °C`
+				: "ukjent";
+			return `Sauna "${name}" har for lav temperatur. Siste registrerte temperatur var ${temp}.`;
+		}
+		case "low_battery": {
+			const pct = d.battery_percent !== undefined && d.battery_percent !== null
+				? `${d.battery_percent} %`
+				: "ukjent";
+			return `Sauna "${name}" har lavt batteri. Siste registrerte nivå var ${pct}.`;
+		}
 		case "offline":
-			return `Sauna "${name}"${where} has not reported in. ${d.reason}.`;
+			return `Sauna "${name}" har ikke sendt data på en stund.`;
 	}
 }
 
@@ -175,8 +193,7 @@ async function loadDevice(deviceId: string): Promise<DeviceRow | null> {
 		        d.last_battery_percent, d.last_signal,
 		        d.active_window_start::text AS active_window_start,
 		        d.active_window_end::text AS active_window_end,
-		        d.active_days, d.timezone,
-		        d.alert_cooldown_hours, d.alert_emails, d.alert_phones
+		        d.active_days, d.timezone
 		   FROM devices d
 		   LEFT JOIN sites s ON s.id = d.site_id
 		  WHERE d.device_id = $1`,
@@ -227,6 +244,41 @@ async function hasRecoveredSinceLastLowTempEvent(
 		       AND temperature >= $3
 		 ) AS exists`,
 		[deviceId, lastLowTempAt, threshold],
+	);
+	return Boolean(r.rows[0]?.exists);
+}
+
+async function hasRecoveredSinceLastLowBatteryEvent(
+	deviceId: string,
+	lastLowBatteryAt: Date | undefined,
+	threshold: number,
+): Promise<boolean> {
+	if (!lastLowBatteryAt) return false;
+	const r = await pool.query<{ exists: boolean }>(
+		`SELECT EXISTS (
+		    SELECT 1 FROM temperature_readings
+		     WHERE device_id = $1
+		       AND created_at > $2
+		       AND battery_percent IS NOT NULL
+		       AND battery_percent >= $3
+		 ) AS exists`,
+		[deviceId, lastLowBatteryAt, threshold],
+	);
+	return Boolean(r.rows[0]?.exists);
+}
+
+async function hasReportedSinceLastOfflineEvent(
+	deviceId: string,
+	lastOfflineAt: Date | undefined,
+): Promise<boolean> {
+	if (!lastOfflineAt) return false;
+	const r = await pool.query<{ exists: boolean }>(
+		`SELECT EXISTS (
+		    SELECT 1 FROM temperature_readings
+		     WHERE device_id = $1
+		       AND created_at > $2
+		 ) AS exists`,
+		[deviceId, lastOfflineAt],
 	);
 	return Boolean(r.rows[0]?.exists);
 }

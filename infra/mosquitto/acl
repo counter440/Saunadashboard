@@ -20,3 +20,7 @@ topic read sauna/#
 # under sauna/. Remove or restrict in production.
 user fake-device
 topic write sauna/#
+
+# Test device (temporary)
+user sauna-test-01
+topic write sauna/sauna-test-01/status

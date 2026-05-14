@@ -17,9 +17,6 @@ interface DeviceSettings {
 	active_window_end: string;
 	active_days: number[];
 	timezone: string;
-	alert_cooldown_hours: number;
-	alert_emails: string[];
-	alert_phones: string[];
 	snoozed_until: Date | null;
 	public_token: string | null;
 }
@@ -45,7 +42,7 @@ export default async function DeviceSettingsPage({
 		        d.battery_warning_percent,
 		        d.active_window_start::text AS active_window_start,
 		        d.active_window_end::text AS active_window_end,
-		        d.active_days, d.timezone, d.alert_cooldown_hours, d.alert_emails, d.alert_phones,
+		        d.active_days, d.timezone,
 		        d.snoozed_until, d.public_token
 		   FROM devices d
 		   LEFT JOIN sites s ON s.id = d.site_id
@@ -53,6 +50,12 @@ export default async function DeviceSettingsPage({
 		[id, customerId],
 	);
 	if (!device) notFound();
+
+	const pushSubscriberRows = await q<{ user_id: string }>(
+		`SELECT user_id FROM device_push_subscribers WHERE device_id = $1`,
+		[id],
+	);
+	const pushSubscriberIds = new Set(pushSubscriberRows.map((r) => r.user_id));
 
 	async function setSnooze(form: FormData) {
 		"use server";
@@ -112,9 +115,6 @@ export default async function DeviceSettingsPage({
 		`SELECT id, email, role FROM users WHERE customer_id = $1 ORDER BY role, email`,
 		[customerId],
 	);
-	const teamEmailSet = new Set(teamUsers.map((u) => u.email.toLowerCase()));
-	const selectedEmailsLower = new Set(device.alert_emails.map((e) => e.toLowerCase()));
-	const externalEmails = device.alert_emails.filter((e) => !teamEmailSet.has(e.toLowerCase()));
 
 	async function save(form: FormData) {
 		"use server";
@@ -125,9 +125,6 @@ export default async function DeviceSettingsPage({
 			active_window_start: z.string().regex(/^\d{2}:\d{2}$/),
 			active_window_end: z.string().regex(/^\d{2}:\d{2}$/),
 			timezone: z.string().min(1).max(100),
-			alert_cooldown_hours: z.coerce.number().int().min(1).max(168),
-			other_emails: z.string().max(2000).optional(),
-			alert_phones: z.string().max(2000).optional(),
 		});
 		const data = schema.parse({
 			low_temp_threshold: form.get("low_temp_threshold") || undefined,
@@ -135,62 +132,56 @@ export default async function DeviceSettingsPage({
 			active_window_start: form.get("active_window_start"),
 			active_window_end: form.get("active_window_end"),
 			timezone: form.get("timezone"),
-			alert_cooldown_hours: form.get("alert_cooldown_hours"),
-			other_emails: form.get("other_emails") ?? undefined,
-			alert_phones: form.get("alert_phones") ?? undefined,
 		});
 
 		const days: number[] = [];
 		for (let i = 0; i < 7; i++) if (form.get(`day_${i}`) === "on") days.push(i);
 		if (days.length === 0) days.push(0, 1, 2, 3, 4, 5, 6);
 
-		// Collect team email checkboxes
-		const teamSelected: string[] = [];
-		for (const u of teamUsers) {
-			if (form.get(`team_${u.id}`) === "on") teamSelected.push(u.email);
-		}
-		// Plus any free-text "other" emails
-		const others = (data.other_emails ?? "")
-			.split(/[,\s]+/).map((s) => s.trim())
-			.filter((s) => s && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s));
-		// Dedupe (case-insensitive)
-		const seen = new Set<string>();
-		const emails: string[] = [];
-		for (const e of [...teamSelected, ...others]) {
-			const k = e.toLowerCase();
-			if (!seen.has(k)) {
-				seen.add(k);
-				emails.push(e);
-			}
-		}
-		const phones = (data.alert_phones ?? "").split(/[,\s]+/).map((s) => s.trim()).filter(Boolean);
+		// Team push opt-ins: derive desired set, then sync the join table.
+		const desiredPushUserIds = teamUsers
+			.filter((u) => form.get(`push_${u.id}`) === "on")
+			.map((u) => u.id);
 
-		await pool.query(
-			`UPDATE devices
-			    SET low_temp_threshold        = $1,
-			        battery_warning_percent   = $2,
-			        active_window_start       = $3,
-			        active_window_end         = $4,
-			        active_days               = $5,
-			        timezone                  = $6,
-			        alert_cooldown_hours      = $7,
-			        alert_emails              = $8,
-			        alert_phones              = $9
-			  WHERE device_id = $10 AND customer_id = $11`,
-			[
-				data.low_temp_threshold ?? null,
-				data.battery_warning_percent,
-				data.active_window_start,
-				data.active_window_end,
-				days,
-				data.timezone,
-				data.alert_cooldown_hours,
-				emails,
-				phones,
-				id,
-				customerId,
-			],
-		);
+		const client = await pool.connect();
+		try {
+			await client.query("BEGIN");
+			await client.query(
+				`UPDATE devices
+				    SET low_temp_threshold        = $1,
+				        battery_warning_percent   = $2,
+				        active_window_start       = $3,
+				        active_window_end         = $4,
+				        active_days               = $5,
+				        timezone                  = $6
+				  WHERE device_id = $7 AND customer_id = $8`,
+				[
+					data.low_temp_threshold ?? null,
+					data.battery_warning_percent,
+					data.active_window_start,
+					data.active_window_end,
+					days,
+					data.timezone,
+					id,
+					customerId,
+				],
+			);
+			await client.query(`DELETE FROM device_push_subscribers WHERE device_id = $1`, [id]);
+			if (desiredPushUserIds.length > 0) {
+				await client.query(
+					`INSERT INTO device_push_subscribers (device_id, user_id)
+					 SELECT $1, UNNEST($2::uuid[])
+					 ON CONFLICT DO NOTHING`,
+					[id, desiredPushUserIds],
+				);
+			}
+			await client.query("COMMIT");
+		} catch (err) {
+			await client.query("ROLLBACK");
+			throw err;
+		} finally {
+			client.release();
+		}
 		redirect(`/devices/${id}/settings?saved=1`);
 	}
 
@@ -331,23 +322,12 @@ export default async function DeviceSettingsPage({
 							{TIMEZONES.map((tz) => <option key={tz} value={tz}>{tz}</option>)}
 						</select>
 					</Field>
-					<Field label={t("settings.cooldown")}>
-						<input
-							name="alert_cooldown_hours"
-							type="number"
-							min={1}
-							max={168}
-							defaultValue={device.alert_cooldown_hours}
-							className="input"
-							required
-						/>
-					</Field>
 				</Section>
 
 				<Section title={t("settings.section.notifications")}>
 					<div>
-						<div className="text-sm text-inkDim">{t("settings.teamRecipients")}</div>
-						<p className="text-xs text-inkMute mt-0.5 mb-2">{t("settings.teamRecipientsNote")}</p>
+						<div className="text-sm text-inkDim">{t("settings.pushSubscribers")}</div>
+						<p className="text-xs text-inkMute mt-0.5 mb-2">{t("settings.pushSubscribersNote")}</p>
 						{teamUsers.length === 0 ? (
 							<p className="text-xs text-inkDim italic">{t("settings.teamEmpty")}</p>
 						) : (
@@ -359,8 +339,8 @@ export default async function DeviceSettingsPage({
 									>
 										<input
 											type="checkbox"
-											name={`team_${u.id}`}
-											defaultChecked={selectedEmailsLower.has(u.email.toLowerCase())}
+											name={`push_${u.id}`}
+											defaultChecked={pushSubscriberIds.has(u.id)}
 											className="accent-accent"
 										/>
 										<span className="min-w-0 flex-1">
@@ -374,23 +354,6 @@ export default async function DeviceSettingsPage({
 							</div>
 						)}
 					</div>
-					<Field label={t("settings.otherEmails")}>
-						<input
-							name="other_emails"
-							defaultValue={externalEmails.join(", ")}
-							className="input"
-							placeholder="alice@external.com, bob@external.com"
-						/>
-						<p className="text-xs text-inkMute mt-1">{t("settings.otherEmailsNote")}</p>
-					</Field>
-					<Field label={t("settings.alertPhones")}>
-						<input
-							name="alert_phones"
-							defaultValue={device.alert_phones.join(", ")}
-							className="input"
-							placeholder="+4790000000, +4790000001"
-						/>
-					</Field>
 				</Section>
 
 				<div className="flex items-center justify-end gap-2">
