@@ -10,6 +10,20 @@ coverage/
 apps/web/public/uploads/devices/*
 !apps/web/public/uploads/devices/.gitkeep
 
+# firmware (PlatformIO)
+firmware/.pio/
+firmware/.pioenvs/
+firmware/.piolibdeps/
+firmware/.vscode/
+firmware/include/secrets.h
+
+# uploaded firmware blobs (served by Caddy in prod from public/fw)
+apps/web/public/fw/*
+!apps/web/public/fw/.gitkeep
+
+# Next.js incremental build artefact
+apps/web/tsconfig.tsbuildinfo
+
 # env
 .env
 .env.local

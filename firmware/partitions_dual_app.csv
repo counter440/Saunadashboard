@@ -1,0 +1,9 @@
+# Dual-app layout for the 16 MB flash on T-SIM7080G-S3 v1.0.
+# Offsets follow the standard ESP-IDF default_ota.csv convention so the
+# bootloader's image-header check is happy.
+# Name,    Type, SubType, Offset,   Size,     Flags
+nvs,       data, nvs,     0x9000,   0x5000,
+otadata,   data, ota,     0xe000,   0x2000,
+app0,      app,  ota_0,   0x10000,  0x600000,
+app1,      app,  ota_1,   0x610000, 0x600000,
+spiffs,    data, spiffs,  0xc10000, 0x3F0000,

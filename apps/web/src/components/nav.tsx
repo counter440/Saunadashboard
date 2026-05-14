@@ -18,6 +18,7 @@ const IconAccount  = () => <Icon d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8
 const IconChart    = () => <Icon d="M3 3v18h18M7 14l3-4 3 3 5-7"/>;
 const IconBuilding = () => <Icon d="M4 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16M16 9h2a2 2 0 0 1 2 2v10M9 8h2M9 12h2M9 16h2M3 21h18"/>;
 const IconRadio    = () => <Icon d="M4 16a8 8 0 0 1 16 0M7 16a5 5 0 0 1 10 0M12 16a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/>;
+const IconChip     = () => <Icon d="M9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3M6 6h12v12H6z M9 9h6v6H9z"/>;
 
 interface NavItem { href: string; labelKey: TKey; Icon: () => ReactElement; }
 
@@ -32,6 +33,7 @@ const adminItems: NavItem[] = [
 	{ href: "/admin",            labelKey: "nav.overview",  Icon: IconChart },
 	{ href: "/admin/customers",  labelKey: "nav.customers", Icon: IconBuilding },
 	{ href: "/admin/devices",    labelKey: "nav.devices",   Icon: IconRadio },
+	{ href: "/admin/firmware",   labelKey: "nav.firmware",  Icon: IconChip },
 ];
 
 // ── Brand mark ──────────────────────────────────────────────────────────

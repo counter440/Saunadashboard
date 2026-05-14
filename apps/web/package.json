@@ -13,6 +13,7 @@
   "dependencies": {
     "@sauna/shared": "workspace:*",
     "bcryptjs": "^2.4.3",
+    "mqtt": "^5.10.1",
     "next": "^15.1.0",
     "next-auth": "5.0.0-beta.25",
     "pg": "^8.13.0",

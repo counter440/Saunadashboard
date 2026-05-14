@@ -5,6 +5,16 @@ import { pool, q, q1 } from "@/lib/db";
 import { requireSuperAdmin } from "@/lib/session";
 import { getT } from "@/lib/i18n.server";
 import { saveDeviceImage, removeDeviceImage } from "@/lib/uploads";
+import { publishOnce } from "@/lib/mqtt-publisher";
+
+interface FirmwareOption {
+	id: string;
+	version: string;
+	channel: string;
+	filename: string;
+	sha256: string;
+	created_at: Date;
+}
 
 interface Device {
 	id: string;
@@ -76,7 +86,7 @@ export default async function AdminDeviceDetailPage({
 	searchParams,
 }: {
 	params: Promise<{ id: string }>;
-	searchParams: Promise<{ saved?: string; n?: string }>;
+	searchParams: Promise<{ saved?: string; n?: string; msg?: string }>;
 }) {
 	await requireSuperAdmin();
 	const { t, locale } = await getT();
@@ -99,6 +109,13 @@ export default async function AdminDeviceDetailPage({
 
 	const customers = await q<Customer>(`SELECT id, name FROM customers ORDER BY name`);
 	const sites = await q<Site>(`SELECT id, name, customer_id, timezone FROM sites ORDER BY name`);
+	const firmwares = await q<FirmwareOption>(
+		`SELECT id, version, channel, filename, sha256, created_at
+		   FROM firmware_releases
+		   WHERE channel = 'stable'
+		   ORDER BY created_at DESC
+		   LIMIT 10`,
+	);
 
 	async function saveAdminFields(form: FormData) {
 		"use server";
@@ -186,6 +203,35 @@ export default async function AdminDeviceDetailPage({
 		redirect(`/admin/devices/${id}?saved=cleared`);
 	}
 
+	async function pushFirmware(form: FormData) {
+		"use server";
+		const { session } = await requireSuperAdmin();
+		const fwId = String(form.get("firmware_id") ?? "");
+		const fw = await q1<FirmwareOption>(
+			`SELECT id, version, channel, filename, sha256, created_at
+			   FROM firmware_releases WHERE id = $1`, [fwId],
+		);
+		if (!fw) redirect(`/admin/devices/${id}?saved=fw-err&msg=missing`);
+		const host = process.env.APP_HOSTNAME ?? "saunatemp.dyndns.org";
+		const url = `https://${host}/fw/${fw!.filename}`;
+		const payload = { type: "ota", url, sha256: fw!.sha256, version: fw!.version };
+		const cmd = await pool.query<{ id: string }>(
+			`INSERT INTO device_pending_commands (device_id, kind, payload, created_by)
+			 VALUES ($1, 'ota', $2, $3) RETURNING id`,
+			[id, payload, session.user.id],
+		);
+		try {
+			await publishOnce(`sauna/${id}/cmd`, payload, { qos: 1, retain: false });
+			await pool.query(
+				`UPDATE device_pending_commands SET delivered_at = now() WHERE id = $1`,
+				[cmd.rows[0]!.id],
+			);
+		} catch (err) {
+			redirect(`/admin/devices/${id}?saved=fw-err&msg=${encodeURIComponent((err as Error).message).slice(0, 120)}`);
+		}
+		redirect(`/admin/devices/${id}?saved=fw-pushed`);
+	}
+
 	async function assign(form: FormData) {
 		"use server";
 		await requireSuperAdmin();
@@ -244,6 +290,14 @@ export default async function AdminDeviceDetailPage({
 			)}
 			{sp.saved === "img-invalid-type" && (
 				<div className="rounded-md bg-bad/10 text-bad px-3 py-2 text-sm border border-bad/30">{t("admin.image.invalidType")}</div>
+			)}
+			{sp.saved === "fw-pushed" && (
+				<div className="rounded-md bg-ok/10 text-ok px-3 py-2 text-sm border border-ok/30">{t("admin.device.fw.pushed")}</div>
+			)}
+			{sp.saved === "fw-err" && (
+				<div className="rounded-md bg-bad/10 text-bad px-3 py-2 text-sm border border-bad/30">
+					{t("admin.device.fw.error", { err: sp.msg ?? "unknown" })}
+				</div>
 			)}
 
 			<header>
@@ -347,6 +401,35 @@ export default async function AdminDeviceDetailPage({
 						)}
 					</div>
 				</div>
+			</section>
+
+			<section className="card p-4">
+				<h2 className="eyebrow mb-2">{t("admin.device.fw.title")}</h2>
+				<p className="text-xs text-inkDim mb-3">
+					{t("admin.device.fw.current", { v: device.fw_version ?? t("admin.device.fw.unknown") })}
+				</p>
+				{firmwares.length === 0 ? (
+					<div className="text-sm text-inkDim">
+						{t("admin.device.fw.noNewer")}{" "}
+						<Link href="/admin/firmware/new" className="text-accent hover:underline">{t("admin.firmware.upload")}</Link>
+					</div>
+				) : (
+					<form action={pushFirmware} className="flex flex-wrap items-end gap-2">
+						<label className="block flex-1 min-w-[200px]">
+							<span className="text-sm text-inkDim">{t("admin.device.fw.choose")}</span>
+							<select name="firmware_id" className="input mt-1 font-mono" required>
+								{firmwares
+									.filter((f) => f.version !== device.fw_version)
+									.map((f) => (
+										<option key={f.id} value={f.id}>
+											{f.version} ({f.channel})
+										</option>
+									))}
+							</select>
+						</label>
+						<button className="btn-primary text-sm" type="submit">{t("admin.device.fw.push")}</button>
+					</form>
+				)}
 			</section>
 
 			<section className="card p-4 border-warn/30">

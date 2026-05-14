@@ -6,6 +6,7 @@
 
 user ingest
 topic read sauna/#
+topic write sauna/+/cmd
 
 # ── Per-device entries ────────────────────────────────────────────────────
 # Add one block per provisioned device, e.g.:
@@ -21,6 +22,12 @@ topic read sauna/#
 user fake-device
 topic write sauna/#
 
-# Test device (temporary)
+# Test device (the real LILYGO on the bench)
 user sauna-test-01
 topic write sauna/sauna-test-01/status
+topic read  sauna/sauna-test-01/cmd
+
+# sauna-dev-01 (auto-added by bring-up)
+user sauna-dev-01
+topic write sauna/sauna-dev-01/status
+topic read  sauna/sauna-dev-01/cmd
